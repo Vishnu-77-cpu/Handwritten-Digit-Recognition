@@ -421,21 +421,56 @@ predictBtn.addEventListener('click', () => {
 
 // ──── Init with Model Persistence ────
 const MODEL_DB_KEY = 'indexeddb://digit-vision-model';
+const MODEL_URL = 'tfjs_model/model.json';
 
 async function init() {
     try {
-        // Try loading saved model first (instant!)
-        loadingStatus.textContent = 'Checking for saved model...';
-        progressBar.style.width = '10%';
+        loadingStatus.textContent = 'Loading pre-trained model...';
+        progressBar.style.width = '20%';
 
+        // Strategy 1: Load from IndexedDB (cached from previous visit)
         try {
             model = await tf.loadLayersModel(MODEL_DB_KEY);
-            console.log('Loaded saved model from IndexedDB!');
+            console.log('Loaded model from IndexedDB cache!');
             progressBar.style.width = '100%';
             loadingStatus.textContent = 'Model loaded instantly!';
-            epochInfo.textContent = 'Pre-trained model ready';
+            epochInfo.textContent = 'Cached model ready';
 
-            // Quick warm-up
+            const warmup = tf.zeros([1, 28, 28, 1]);
+            model.predict(warmup).dispose();
+            warmup.dispose();
+
+            setTimeout(() => { loadingOverlay.classList.add('hidden'); }, 400);
+            return;
+        } catch (e) {
+            console.log('No IndexedDB cache, loading from server...');
+        }
+
+        // Strategy 2: Load pre-trained model from tfjs_model/ (fast!)
+        try {
+            progressBar.style.width = '40%';
+            loadingStatus.textContent = 'Downloading pre-trained model...';
+            model = await tf.loadLayersModel(MODEL_URL);
+            console.log('Loaded pre-trained model from server!');
+
+            // Compile the model (needed for predictions)
+            model.compile({ optimizer: tf.train.adam(0.001), loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
+
+            progressBar.style.width = '80%';
+
+            // Save to IndexedDB for faster load next time
+            loadingStatus.textContent = 'Caching model for faster loads...';
+            try {
+                await model.save(MODEL_DB_KEY);
+                console.log('Model cached to IndexedDB!');
+            } catch (saveErr) {
+                console.log('Could not cache model:', saveErr);
+            }
+
+            progressBar.style.width = '100%';
+            loadingStatus.textContent = 'Model ready!';
+            epochInfo.textContent = 'Pre-trained model loaded';
+
             const warmup = tf.zeros([1, 28, 28, 1]);
             model.predict(warmup).dispose();
             warmup.dispose();
@@ -443,10 +478,10 @@ async function init() {
             setTimeout(() => { loadingOverlay.classList.add('hidden'); }, 500);
             return;
         } catch (e) {
-            console.log('No saved model found, training from scratch...');
+            console.log('Could not load pre-trained model, training from scratch...', e);
         }
 
-        // No saved model — train from scratch
+        // Strategy 3: Train from scratch (last resort)
         loadingStatus.textContent = 'Downloading MNIST dataset (~15 MB)...';
         const data = new MnistData();
         await data.load();
@@ -459,13 +494,11 @@ async function init() {
 
         progressBar.style.width = '95%';
 
-        // Save model to IndexedDB for next time!
         loadingStatus.textContent = 'Saving model for future visits...';
         await model.save(MODEL_DB_KEY);
         console.log('Model saved to IndexedDB!');
 
         progressBar.style.width = '100%';
-        // Final eval
         const test = data.getTestData(5000);
         const evalResult = model.evaluate(test.xs, test.labels);
         const acc = (await evalResult[1].data())[0];
@@ -483,3 +516,4 @@ async function init() {
 }
 
 init();
+
