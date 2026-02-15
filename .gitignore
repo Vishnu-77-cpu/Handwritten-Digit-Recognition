@@ -6,6 +6,11 @@ __pycache__/
 dist/
 build/
 .env
+train_model.py
+convert_model.py
+dist/
+build/
+.env
 
 # Model training data
 digit-recognizer/
