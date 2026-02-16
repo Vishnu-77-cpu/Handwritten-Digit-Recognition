@@ -1,15 +1,16 @@
 FROM nginx:alpine
 
-# Copy website files to nginx html directory
-COPY index.html /usr/share/nginx/html/
-COPY style.css /usr/share/nginx/html/
-COPY main.js /usr/share/nginx/html/
+# Copy static website files
+COPY index.html style.css main.js /usr/share/nginx/html/
+
+# Copy pre-built TensorFlow.js model (no retraining needed)
 COPY tfjs_model/ /usr/share/nginx/html/tfjs_model/
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Use nginx templates for dynamic PORT substitution (Render sets $PORT)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
-# Render uses PORT env variable
-EXPOSE 10000
+# Render uses PORT env variable, default to 10000
+ENV PORT=10000
+EXPOSE ${PORT}
 
 CMD ["nginx", "-g", "daemon off;"]
