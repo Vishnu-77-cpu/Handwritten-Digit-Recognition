@@ -280,25 +280,54 @@ class MnistData {
     }
 }
 
-// ──── Build & Train Model ────
-function buildModel() {
+// ──── Build Pre-trained Model Architecture (matches Python train_model.py) ────
+// This architecture includes BatchNormalization layers matching the pre-trained weights
+function buildPretrainedModel() {
     const m = tf.sequential();
-    // Block 1: Two conv layers + pooling
+    // Block 1
+    m.add(tf.layers.conv2d({ inputShape: [28, 28, 1], filters: 32, kernelSize: 3, padding: 'same', activation: 'relu', name: 'conv2d' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization' }));
+    m.add(tf.layers.conv2d({ filters: 32, kernelSize: 3, padding: 'same', activation: 'relu', name: 'conv2d_1' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization_1' }));
+    m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+    m.add(tf.layers.dropout({ rate: 0.25 }));
+    // Block 2
+    m.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, padding: 'same', activation: 'relu', name: 'conv2d_2' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization_2' }));
+    m.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, padding: 'same', activation: 'relu', name: 'conv2d_3' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization_3' }));
+    m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+    m.add(tf.layers.dropout({ rate: 0.25 }));
+    // Block 3
+    m.add(tf.layers.conv2d({ filters: 128, kernelSize: 3, padding: 'same', activation: 'relu', name: 'conv2d_4' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization_4' }));
+    m.add(tf.layers.dropout({ rate: 0.4 }));
+    // Classifier
+    m.add(tf.layers.flatten());
+    m.add(tf.layers.dense({ units: 256, activation: 'relu', name: 'dense' }));
+    m.add(tf.layers.batchNormalization({ name: 'batch_normalization_5' }));
+    m.add(tf.layers.dropout({ rate: 0.5 }));
+    m.add(tf.layers.dense({ units: 10, activation: 'softmax', name: 'dense_1' }));
+
+    m.compile({ optimizer: tf.train.adam(0.001), loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
+    return m;
+}
+
+// ──── Build Simple Model (for in-browser training fallback) ────
+function buildSimpleModel() {
+    const m = tf.sequential();
     m.add(tf.layers.conv2d({ inputShape: [28, 28, 1], filters: 32, kernelSize: 3, padding: 'same', activation: 'relu' }));
     m.add(tf.layers.conv2d({ filters: 32, kernelSize: 3, padding: 'same', activation: 'relu' }));
     m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
     m.add(tf.layers.dropout({ rate: 0.25 }));
-    // Block 2: Two conv layers + pooling
     m.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, padding: 'same', activation: 'relu' }));
     m.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, padding: 'same', activation: 'relu' }));
     m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
     m.add(tf.layers.dropout({ rate: 0.25 }));
-    // Classifier
     m.add(tf.layers.flatten());
     m.add(tf.layers.dense({ units: 256, activation: 'relu' }));
     m.add(tf.layers.dropout({ rate: 0.5 }));
     m.add(tf.layers.dense({ units: 10, activation: 'softmax' }));
-
     m.compile({ optimizer: tf.train.adam(0.001), loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
     return m;
 }
@@ -335,6 +364,86 @@ async function trainModel(m, data) {
 
     train.xs.dispose(); train.labels.dispose();
     test.xs.dispose(); test.labels.dispose();
+}
+
+// ──── Load pre-trained weights from .bin file into a JS-built model ────
+async function loadPretrainedWeights(m) {
+    const WEIGHTS_URL = 'tfjs_model/group1-shard1of1.bin';
+    const response = await fetch(WEIGHTS_URL);
+    if (!response.ok) throw new Error('Failed to fetch weights: ' + response.status);
+    const buffer = await response.arrayBuffer();
+
+    // Weight layout matches Python model layer order (same as weightsManifest)
+    const weightSpecs = [
+        { name: 'conv2d/kernel', shape: [3, 3, 1, 32] },
+        { name: 'conv2d/bias', shape: [32] },
+        { name: 'batch_normalization/gamma', shape: [32] },
+        { name: 'batch_normalization/beta', shape: [32] },
+        { name: 'batch_normalization/moving_mean', shape: [32] },
+        { name: 'batch_normalization/moving_variance', shape: [32] },
+        { name: 'conv2d_1/kernel', shape: [3, 3, 32, 32] },
+        { name: 'conv2d_1/bias', shape: [32] },
+        { name: 'batch_normalization_1/gamma', shape: [32] },
+        { name: 'batch_normalization_1/beta', shape: [32] },
+        { name: 'batch_normalization_1/moving_mean', shape: [32] },
+        { name: 'batch_normalization_1/moving_variance', shape: [32] },
+        { name: 'conv2d_2/kernel', shape: [3, 3, 32, 64] },
+        { name: 'conv2d_2/bias', shape: [64] },
+        { name: 'batch_normalization_2/gamma', shape: [64] },
+        { name: 'batch_normalization_2/beta', shape: [64] },
+        { name: 'batch_normalization_2/moving_mean', shape: [64] },
+        { name: 'batch_normalization_2/moving_variance', shape: [64] },
+        { name: 'conv2d_3/kernel', shape: [3, 3, 64, 64] },
+        { name: 'conv2d_3/bias', shape: [64] },
+        { name: 'batch_normalization_3/gamma', shape: [64] },
+        { name: 'batch_normalization_3/beta', shape: [64] },
+        { name: 'batch_normalization_3/moving_mean', shape: [64] },
+        { name: 'batch_normalization_3/moving_variance', shape: [64] },
+        { name: 'conv2d_4/kernel', shape: [3, 3, 64, 128] },
+        { name: 'conv2d_4/bias', shape: [128] },
+        { name: 'batch_normalization_4/gamma', shape: [128] },
+        { name: 'batch_normalization_4/beta', shape: [128] },
+        { name: 'batch_normalization_4/moving_mean', shape: [128] },
+        { name: 'batch_normalization_4/moving_variance', shape: [128] },
+        { name: 'dense/kernel', shape: [6272, 256] },
+        { name: 'dense/bias', shape: [256] },
+        { name: 'batch_normalization_5/gamma', shape: [256] },
+        { name: 'batch_normalization_5/beta', shape: [256] },
+        { name: 'batch_normalization_5/moving_mean', shape: [256] },
+        { name: 'batch_normalization_5/moving_variance', shape: [256] },
+        { name: 'dense_1/kernel', shape: [256, 10] },
+        { name: 'dense_1/bias', shape: [10] }
+    ];
+
+    // Parse binary buffer into tensors
+    let offset = 0;
+    const namedTensors = {};
+    for (const spec of weightSpecs) {
+        const size = spec.shape.reduce((a, b) => a * b, 1);
+        const values = new Float32Array(buffer, offset, size);
+        namedTensors[spec.name] = tf.tensor(values, spec.shape);
+        offset += size * 4; // float32 = 4 bytes
+    }
+
+    // Assign weights to model layers by matching names
+    for (const layer of m.layers) {
+        const layerWeights = layer.weights;
+        if (layerWeights.length === 0) continue;
+
+        const newWeights = [];
+        for (const w of layerWeights) {
+            // TF.js weight names are like "conv2d/kernel" or "batch_normalization/gamma"
+            const wName = w.name.replace(':0', '');
+            if (namedTensors[wName]) {
+                newWeights.push(namedTensors[wName]);
+            } else {
+                throw new Error('Missing weight: ' + wName);
+            }
+        }
+        layer.setWeights(newWeights);
+    }
+
+    console.log('Pre-trained weights loaded successfully!');
 }
 
 // ──── Preprocessing ────
@@ -421,7 +530,6 @@ predictBtn.addEventListener('click', () => {
 
 // ──── Init with Model Persistence ────
 const MODEL_DB_KEY = 'indexeddb://digit-vision-model';
-const MODEL_URL = 'tfjs_model/model.json';
 
 async function init() {
     try {
@@ -431,7 +539,7 @@ async function init() {
         // Strategy 1: Load from IndexedDB (cached from previous visit)
         try {
             model = await tf.loadLayersModel(MODEL_DB_KEY);
-            console.log('Loaded model from IndexedDB cache!');
+            console.log('✅ Loaded model from IndexedDB cache!');
             progressBar.style.width = '100%';
             loadingStatus.textContent = 'Model loaded instantly!';
             epochInfo.textContent = 'Cached model ready';
@@ -443,32 +551,35 @@ async function init() {
             setTimeout(() => { loadingOverlay.classList.add('hidden'); }, 400);
             return;
         } catch (e) {
-            console.log('No IndexedDB cache, loading from server...');
+            console.log('No IndexedDB cache:', e.message);
         }
 
-        // Strategy 2: Load pre-trained model from tfjs_model/ (fast!)
+        // Strategy 2: Build model in JS + load pre-trained weights from .bin file
+        // This bypasses model.json topology parsing entirely!
         try {
-            progressBar.style.width = '40%';
-            loadingStatus.textContent = 'Downloading pre-trained model...';
-            model = await tf.loadLayersModel(MODEL_URL);
-            console.log('Loaded pre-trained model from server!');
+            progressBar.style.width = '30%';
+            loadingStatus.textContent = 'Loading pre-trained model...';
 
-            // Compile the model (needed for predictions)
-            model.compile({ optimizer: tf.train.adam(0.001), loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
+            model = buildPretrainedModel();
+            progressBar.style.width = '50%';
+            loadingStatus.textContent = 'Downloading pre-trained weights (~7 MB)...';
+
+            await loadPretrainedWeights(model);
+            console.log('✅ Pre-trained model loaded with weights!');
 
             progressBar.style.width = '80%';
 
-            // Save to IndexedDB for faster load next time
+            // Save to IndexedDB for instant load next time
             loadingStatus.textContent = 'Caching model for faster loads...';
             try {
                 await model.save(MODEL_DB_KEY);
-                console.log('Model cached to IndexedDB!');
+                console.log('✅ Model cached to IndexedDB!');
             } catch (saveErr) {
                 console.log('Could not cache model:', saveErr);
             }
 
             progressBar.style.width = '100%';
-            loadingStatus.textContent = 'Model ready!';
+            loadingStatus.textContent = 'Model ready! 99%+ accuracy';
             epochInfo.textContent = 'Pre-trained model loaded';
 
             const warmup = tf.zeros([1, 28, 28, 1]);
@@ -478,17 +589,18 @@ async function init() {
             setTimeout(() => { loadingOverlay.classList.add('hidden'); }, 500);
             return;
         } catch (e) {
-            console.log('Could not load pre-trained model, training from scratch...', e);
+            console.error('❌ Could not load pre-trained weights:', e);
         }
 
-        // Strategy 3: Train from scratch (last resort)
+        // Strategy 3: Train from scratch (absolute last resort)
+        console.warn('⚠️ Falling back to in-browser training...');
         loadingStatus.textContent = 'Downloading MNIST dataset (~15 MB)...';
         const data = new MnistData();
         await data.load();
         progressBar.style.width = '5%';
 
         loadingStatus.textContent = 'Building CNN model...';
-        model = buildModel();
+        model = buildSimpleModel();
 
         await trainModel(model, data);
 
@@ -516,4 +628,3 @@ async function init() {
 }
 
 init();
-
